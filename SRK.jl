@@ -14,7 +14,7 @@
 # Fugacity coefficients (for each phase)
 # Enthalpy [kJ/kmol]
 # Molar volume [m3/kmol]
-# Enthropy [kJ/kmolK] TO DO
+# Enthropy [kJ/kmolK] 
 
 using Roots
 
