@@ -26,18 +26,20 @@ const Pc = [33.5, 45.4, 48.2, 41.9, 37.5 ]*1.e5  # [N/m2]
 const Tc = [126.2, 190.6, 305.4, 369.8, 425.2 ]  # [K]
 const w =  [0.040, 0.008, 0.098, 0.152, 0.193 ]  # acentric factor [-]
 
+const R = 8.314 # [kJ/kmolK]
+
 # Ideal has heat capacity (See Hid below):
-const Cp = [ 7.440 -0.324e-2  6.400e-6 -2.790e-9; # Nitrogen
-             4.598  1.245e-2  2.86e-6  -2.703e-9; # Methane
-             1.292  4.254e-2 -1.657e-5  2.081e-9; # Ethane
-            -1.009  7.315e-2 -3.789e-5  7.678e-9; # Propane
-             2.266  7.913e-2 -2.647e-5 -0.674e-9] # n-butane
+const Cp = [ 3.539 -0.261e-3 0.007e-5   0.157e-8 -0.099e-11;     # Nitrogen
+             4.568 -8.975e-3 3.631e-5  -3.407e-8  1.091e-11;     # Methane
+             4.178 -4.427e-3 5.660e-5  -6.651e-8  2.487e-11;     # Ethane
+             3.847  5.131e-3 6.011e-5  -7.893e-8  3.079e-11;     # Propane
+             5.547  5.536e-3 8.057e-5 -10.571e-8  4.134e-11] * R # n-butane
 
 const Tref = 298.15  # for Ideal gas heat capacity
 
 const kinteraction = zeros(NC,NC)     # Here: SRK binary interaction parameters set to zero
 
-const R = 8.314 # [kJ/kmolK]
+
 
 ZRA = 0.29056 - 0.08775 * w
 
@@ -158,9 +160,10 @@ function getHideal(T, P, x)
     t2 = 1/2 * Cp[i,2] * (T^2 - Tref^2)
     t3 = 1/3 * Cp[i,3] * (T^3 - Tref^3)
     t4 = 1/4 * Cp[i,4] * (T^4 - Tref^4)
-    Hid += x[i] * (t1 + t2 + t3 + t4)
+    t5 = 1/5 * Cp[i,5] * (T^5 - Tref^5)
+    Hid += x[i] * (t1 + t2 + t3 + t4 + t5)
   end
-  Hid *= 4.184 #From kcal to kJ
+  return Hid
 end
 
 # Departure enthalpy
@@ -198,6 +201,7 @@ end
 ## Molar volume
 
 # For Liquid Phase with Peneleoux correction
+
 function getVLiq(T, P, x, Z)
   c=0
   for i=1:NC
@@ -211,6 +215,66 @@ function getVVap(T, P, x, Z)
   V = Z * R * T / P
 end
 
+# Getting Molar volume
+function getV(T, P, x, Z)
+    if Z<0.1
+        V = getVLiq(T, P, x, Z)
+     else
+        V = getVVap(T, P, x, Z)
+    end
+    return V
+end
+
+## Entropy
+
+function getSSRK(T, P, x, Z)
+    A, B, Ap, Bp, m = getPar(T, P, x)
+    dadT = getdadT(T, P , x, m, Ap, A, B)
+    corrb = (R*T/P)
+    Vt = getV(T, P, x, Z)
+    fact1 = dadT/ ( B * corrb )
+    fact2 = log(Vt / ( Vt + B * corrb))
+    Ssrk = fact1 * fact2 - R*log(Z * (1 - B * corrb/Vt))
+    return Ssrk
+end
+
+
+# Ideal gas entropy
+
+function getSideal(T, P, x)
+  # Constant pressure contribution
+  SidP = 0.0
+  for i = 1:NC
+    t1 = Cp[i,1] * log(T - Tref)
+    t2 = Cp[i,2] * (T - Tref)
+    t3 = 1/2 * Cp[i,3] * (T^2 - Tref^2)
+    t4 = 1/3 * Cp[i,4] * (T^3 - Tref^3)
+    t5 = 1/4 * Cp[i,5] * (T^4 - Tref^4)
+    SidP = SidP + x[i] * (t1 + t2 + t3 + t4 + t5)
+  end
+  #   Constant temperature contribution
+  SidT = R * log(P/Pref);
+
+  #  Mixing contribution
+  SidM = 0;
+  for i =1:NC
+      if x[i] > 0
+          SidM = SidM + x[i] * log(x[i])
+      end
+  end
+  S = SidP - SidT - SidM
+  return SIdeal
+end
+
+# Final entropy
+function getS(T, P, x, Z)
+  SSrk = getSSRK(T, P, x, Z)
+  SIdeal = getSideal(T, P, x)
+  return SSRk + SIdeal
+end
+
+# Test
+# Not updated for S
 function TestSRK(T, P, x)
   A, B, Ap, Bp, m = getPar(T, P, x)
   comps = getZs(A, B)
